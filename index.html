@@ -1,356 +1,234 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Organizator recepata i potrošnje sastojaka (deljeni)</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/vue@3.2.47/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+  <div id="app" class="max-w-6xl mx-auto bg-white rounded-2xl shadow-lg p-6">
+    <h1 class="text-3xl font-bold mb-4 text-center text-green-700">
+      🥕 Organizator recepata i potrošnje sastojaka — DELJENO
+    </h1>
 
-                <span>Dodaj u nedelju</span>
-              </label>
-              <div class="mt-2">
-                <select v-model="chosenDay[recipe.name]" class="border rounded-lg p-1 text-sm w-full mb-2">
-                  <option disabled value="">Izaberi dan</option>
-                  <option v-for="d in days" :key="d" :value="d">{{ d }}</option>
-                </select>
-                <select v-model="chosenSlot[recipe.name]" class="border rounded-lg p-1 text-sm w-full">
-                  <option disabled value="">Izaberi obrok</option>
-                  <option v-for="s in slots" :key="s" :value="s">{{ s }}</option>
-                </select>
-                <div class="mt-2 grid grid-cols-2 gap-2">
-                  <button class="px-3 py-1 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
-                        @click="addToDay(recipe.name)">Smesti</button>
-                  <button class="px-3 py-1 rounded-lg bg-yellow-100 text-yellow-800 text-sm hover:bg-yellow-200"
-                        @click="openEdit(recipe)">Uredi</button>
-                  <button class="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-sm hover:bg-red-200 col-span-2"
-                        @click="deleteRecipe(recipe.name)">Obriši</button>
-                </div>
+    <!-- Toolbar -->
+    <div class="flex flex-wrap items-center gap-2 mb-6">
+      <input v-model="me" placeholder="Tvoje ime (opciono)" class="border rounded-lg p-2 text-sm" style="min-width:180px">
+      <button @click="syncNow" class="px-3 py-2 rounded-lg bg-gray-100 text-sm hover:bg-gray-200">Osveži</button>
+
+      <button @click="exportLocal" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">Izvezi lokalno (.json)</button>
+      <label class="px-3 py-2 rounded-lg bg-white border text-blue-700 text-sm cursor-pointer hover:bg-blue-50">
+        Uvezi (.json)
+        <input type="file" class="hidden" accept="application/json" @change="importLocal">
+      </label>
+    </div>
+
+    <!-- Add recipe -->
+    <div class="mb-10">
+      <h2 class="text-xl font-semibold mb-3">Dodaj novi recept (vidljiv svima)</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <input v-model="draft.name" placeholder="Naziv recepta" class="border rounded-lg p-2" />
+        <input v-model="draft.ingredients" placeholder="Sastojci (zarez ili novi red)" class="border rounded-lg p-2" />
+      </div>
+      <textarea v-model="draft.instructions" placeholder="Uputstvo za pripremu" class="border rounded-lg p-2 w-full mt-3"></textarea>
+      <div class="mt-3">
+        <span class="block text-sm font-medium text-gray-700 mb-1">Kategorije (može više):</span>
+        <label class="mr-4 inline-flex items-center gap-2 text-sm"><input type="checkbox" v-model="draft.categories" value="Doručak" /> Doručak</label>
+        <label class="mr-4 inline-flex items-center gap-2 text-sm"><input type="checkbox" v-model="draft.categories" value="Ručak" /> Ručak</label>
+        <label class="mr-4 inline-flex items-center gap-2 text-sm"><input type="checkbox" v-model="draft.categories" value="Večera" /> Večera</label>
+      </div>
+      <button @click="createRecipe" class="mt-3 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">Dodaj recept (u bazu)</button>
+    </div>
+
+    <!-- Search -->
+    <div class="mb-6">
+      <h2 class="text-xl font-semibold mb-3">Pronađi recepte</h2>
+      <input v-model="q" placeholder="Traži po sastojku / imenu" class="border rounded-lg p-2 w-full" />
+    </div>
+
+    <!-- Recipes list -->
+    <div>
+      <h2 class="text-xl font-semibold mb-3">Recepti (deljeni)</h2>
+      <transition-group name="fade" tag="div">
+        <div v-for="r in filtered" :key="r.id" class="border rounded-xl p-4 mb-4 bg-gray-100 hover:bg-green-50 transition">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <h3 class="text-lg font-bold text-green-700 break-words">{{ r.name }}</h3>
+              <div class="flex flex-wrap gap-2 my-1">
+                <span v-for="cat in (r.categories || [])" :key="r.id+'-'+cat" class="px-2 py-0.5 text-xs rounded-full bg-green-200 text-green-900">{{ cat }}</span>
+              </div>
+              <p class="text-sm text-gray-700"><strong>Sastojci:</strong> {{ r.ingredients }}</p>
+              <p class="mt-2 text-gray-800 whitespace-pre-line">{{ r.instructions }}</p>
+              <p class="mt-1 text-xs text-gray-500" v-if="r.author">Dodao: {{ r.author }}</p>
+            </div>
+            <div class="shrink-0 text-right w-56">
+              <div class="grid grid-cols-2 gap-2">
+                <button class="px-3 py-1 rounded-lg bg-yellow-100 text-yellow-800 text-sm hover:bg-yellow-200" @click="openEdit(r)">Uredi</button>
+                <button class="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-sm hover:bg-red-200" @click="removeRecipe(r)">Obriši</button>
               </div>
             </div>
           </div>
         </div>
       </transition-group>
-      <p v-if="filteredRecipes.length === 0" class="text-gray-500 italic">Nema recepata sa tim sastojkom.</p>
-    </div>
-
-    <!-- Nedeljni kalendar -->
-    <div class="mt-10 border-t pt-6">
-      <h2 class="text-2xl font-bold text-green-700 mb-4">🗓️ Nedeljni kalendar</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div v-for="d in days" :key="d" class="bg-white border rounded-xl p-4 shadow-sm">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-semibold text-green-800">{{ d }}</h3>
-            <button class="text-xs text-red-600 hover:underline" @click="clearDay(d)" v-if="hasAny(d)">obriši</button>
-          </div>
-          <div v-for="s in slots" :key="s" class="mb-3 border rounded-md p-2"
-               @dragover.prevent
-               @drop="onDrop(d,s)">
-            <div class="flex items-center justify-between">
-              <h4 class="text-sm font-semibold text-gray-700">{{ s }}</h4>
-              <button class="text-xs text-gray-500 hover:underline" @click="clearSlot(d,s)" v-if="(week[d] && week[d][s] && week[d][s].length)">očisti</button>
-            </div>
-            <ul class="space-y-2 mt-1 min-h-[40px]">
-              <li v-for="(r, idx) in (week[d] && week[d][s] ? week[d][s] : [])"
-                  :key="r+idx"
-                  class="flex items-center justify-between bg-gray-50 rounded-lg px-2 py-1 cursor-move"
-                  draggable="true"
-                  @dragstart="onDragStart(d,s,idx,r)">
-                <span class="text-sm">{{ r }}</span>
-                <button class="text-xs text-red-600 hover:underline" @click="removeFromSlot(d, s, idx)">ukloni</button>
-              </li>
-            </ul>
-            <p v-if="!(week[d] && week[d][s] && week[d][s].length)" class="text-xs text-gray-400">Prevuci recepte ovde.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Plan nedelje i lista za kupovinu -->
-    <div class="mt-10 border-t pt-6">
-      <h2 class="text-2xl font-bold text-green-700 mb-4">🛒 Plan nedelje i lista za kupovinu</h2>
-      <p class="text-gray-600 mb-3">Pravimo objedinjenu listu sastojaka iz tvog nedeljnog plana kako bismo smanjili bacanje hrane.</p>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div class="bg-green-50 rounded-xl p-4">
-          <h3 class="font-semibold text-green-800 mb-2">Izabrani recepti ({{ weekRecipes.length }})</h3>
-          <ul class="list-disc ml-5 text-sm text-gray-800 space-y-1">
-            <li v-for="r in weekRecipes" :key="r" class="flex items-center justify-between">
-              <span>{{ r }}</span>
-              <button class="text-red-600 text-xs hover:underline" @click="unselectEverywhere(r)">ukloni</button>
-            </li>
-          </ul>
-          <div v-if="weekRecipes.length === 0" class="text-sm text-gray-500 italic">Nema izabranih recepata.</div>
-          <div class="mt-3 flex gap-2">
-            <button class="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 text-sm" @click="clearWeekAll" v-if="weekRecipes.length">Obriši sve</button>
-          </div>
-        </div>
-        <div class="bg-blue-50 rounded-xl p-4">
-          <h3 class="font-semibold text-blue-800 mb-2">Lista za kupovinu ({{ aggregatedIngredients.length }} stavki)</h3>
-          <div class="max-h-56 overflow-auto pr-1">
-            <ul class="list-disc ml-5 text-sm text-gray-800 space-y-1">
-              <li v-for="g in aggregatedIngredients" :key="g.key">
-                <span class="font-medium">{{ g.display }}</span>
-                <span v-if="g.count>1" class="text-gray-500"> × {{ g.count }}</span>
-              </li>
-            </ul>
-          </div>
-          <div class="mt-3 flex gap-2">
-            <button class="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm" @click="copyGrocery">Kopiraj</button>
-            <button class="px-3 py-1.5 rounded-lg bg-white border text-blue-700 hover:bg-blue-100 text-sm" @click="downloadGrocery">Preuzmi .txt</button>
-          </div>
-        </div>
-      </div>
+      <p v-if="filtered.length === 0" class="text-gray-500 italic">Nema recepata sa tim kriterijumom.</p>
     </div>
 
     <!-- Edit modal -->
     <div v-if="editing" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
       <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6">
         <h3 class="text-xl font-bold mb-4">Uredi recept</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-3">
           <input v-model="editDraft.name" placeholder="Naziv recepta" class="border rounded-lg p-2" />
-          <div class="md:col-span-1">
+          <textarea v-model="editDraft.ingredients" placeholder="Sastojci" class="border rounded-lg p-2 w-full"></textarea>
+          <textarea v-model="editDraft.instructions" placeholder="Uputstvo" class="border rounded-lg p-2 w-full"></textarea>
+          <div>
             <span class="block text-sm font-medium text-gray-700 mb-1">Kategorije:</span>
             <div class="flex flex-wrap gap-4 text-sm">
-              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Doručak"/> Doručak</label>
-              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Ručak"/> Ručak</label>
-              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Večera"/> Večera</label>
+              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Doručak" /> Doručak</label>
+              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Ručak" /> Ručak</label>
+              <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="editDraft.categories" value="Večera" /> Večera</label>
             </div>
           </div>
         </div>
-        <textarea v-model="editDraft.ingredients" placeholder="Sastojci" class="border rounded-lg p-2 w-full mt-3"></textarea>
-        <textarea v-model="editDraft.instructions" placeholder="Uputstvo za pripremu" class="border rounded-lg p-2 w-full mt-3"></textarea>
         <div class="mt-4 flex justify-end gap-2">
           <button class="px-4 py-2 rounded-lg bg-white border text-gray-700 hover:bg-gray-100" @click="cancelEdit">Otkaži</button>
           <button class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700" @click="saveEdit">Sačuvaj</button>
         </div>
       </div>
     </div>
-
   </div>
 
   <script>
+    // === SUPABASE CONFIG (zameni svojim) ===
+    const SUPABASE_URL = 'https://ikhsmokgbxixeiyppydi.supabase.co';
+    const SUPABASE_ANON_KEY = 'process.env.SUPABASE_KEY';
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     const app = Vue.createApp({
       data() {
         return {
-          newRecipe: { name: '', ingredients: '', instructions: '', categories: [] },
+          me: localStorage.getItem('me') || '',
+          draft: { name: '', ingredients: '', instructions: '', categories: [] },
           recipes: [],
-          searchQuery: '',
-          selected: new Set(),
-          days: ['Pon', 'Uto', 'Sre', 'Čet', 'Pet', 'Sub', 'Ned'],
-          slots: ['Doručak','Ručak','Večera'],
-          week: { Pon: {Doručak:[],Ručak:[],Večera:[]}, Uto: {Doručak:[],Ručak:[],Večera:[]}, Sre: {Doručak:[],Ručak:[],Večera:[]}, Čet: {Doručak:[],Ručak:[],Večera:[]}, Pet: {Doručak:[],Ručak:[],Večera:[]}, Sub: {Doručak:[],Ručak:[],Večera:[]}, Ned: {Doručak:[],Ručak:[],Večera:[]} },
-          chosenDay: {},
-          chosenSlot: {},
-          // uređivanje
+          q: '',
           editing: false,
-          editOriginalName: null,
-          editDraft: { name: '', ingredients: '', instructions: '', categories: [] },
-          // drag & drop
-          dragPayload: null
+          editDraft: { id:null, name:'', ingredients:'', instructions:'', categories:[] }
         };
       },
       computed: {
-        filteredRecipes() {
-          if (!this.searchQuery) return this.recipes;
-          const q = this.searchQuery.toLowerCase();
-          return this.recipes.filter(r => (r.ingredients+" "+r.name+" "+(r.categories||[]).join(' ')).toLowerCase().includes(q));
-        },
-        weekRecipes() {
-          const set = new Set();
-          for (const d of this.days) {
-            for (const s of this.slots) {
-              for (const r of (this.week[d] && this.week[d][s] ? this.week[d][s] : [])) set.add(r);
-            }
-          }
-          return Array.from(set.values()).sort();
-        },
-        aggregatedIngredients() {
-          const map = new Map();
-          const norm = s => s.toLowerCase().replace(/\s+/g,' ').trim();
-          const displayPick = s => s.trim();
-          const recipesByName = new Map(this.recipes.map(r => [r.name, r]));
-          for (const d of this.days) {
-            for (const s of this.slots) {
-              for (const name of (this.week[d] && this.week[d][s] ? this.week[d][s] : [])) {
-                const r = recipesByName.get(name);
-                if (!r) continue;
-                const list = r.ingredients.replace(/\n/g, ',').split(',').map(x => x.trim()).filter(Boolean);
-                for (const raw of list) {
-                  const key = norm(raw);
-                  const prev = map.get(key) || { key, display: displayPick(raw), count: 0 };
-                  prev.count += 1; // može se unaprediti sabiranjem količina
-                  map.set(key, prev);
-                }
-              }
-            }
-          }
-          return Array.from(map.values()).sort((a,b)=> a.display.localeCompare(b.display));
+        filtered() {
+          const q = this.q.toLowerCase();
+          return this.recipes.filter(r =>
+            !q ||
+            (r.name && r.name.toLowerCase().includes(q)) ||
+            (r.ingredients && r.ingredients.toLowerCase().includes(q)) ||
+            ((r.categories||[]).join(' ').toLowerCase().includes(q))
+          ).sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
         }
       },
       methods: {
-        // CRUD recepta
-        addRecipe() {
-          if (!this.newRecipe.name || !this.newRecipe.ingredients) {
-            alert('Unesi naziv recepta i sastojke.');
-            return;
-          }
-          const clean = {
-            name: this.newRecipe.name.trim(),
-            ingredients: this.newRecipe.ingredients.replace(/\n/g, ',').split(',').map(x => x.trim()).filter(Boolean).join(', '),
-            instructions: this.newRecipe.instructions.trim(),
-            categories: Array.isArray(this.newRecipe.categories) ? [...new Set(this.newRecipe.categories)] : []
+        // CRUD
+        async createRecipe() {
+          if (!this.draft.name || !this.draft.ingredients) { alert('Naziv i sastojci su obavezni.'); return; }
+          const row = {
+            name: this.draft.name.trim(),
+            ingredients: this.draft.ingredients.replace(/\n/g, ',').split(',').map(x=>x.trim()).filter(Boolean).join(', '),
+            instructions: (this.draft.instructions||'').trim(),
+            categories: Array.isArray(this.draft.categories) ? this.draft.categories : [],
+            author: (this.me||'').trim() || null
           };
-          // zabrana duplikata po nazivu
-          if (this.recipes.some(r => r.name.toLowerCase() === clean.name.toLowerCase())) {
-            alert('Već postoji recept sa tim nazivom.');
-            return;
-          }
-          this.recipes.push(clean);
-          this.newRecipe = { name: '', ingredients: '', instructions: '', categories: [] };
-          this.persist();
+          const { error } = await sb.from('recipes').insert(row);
+          if (error) { alert('Greška pri dodavanju: ' + error.message); return; }
+          this.draft = { name:'', ingredients:'', instructions:'', categories:[] };
         },
-        openEdit(recipe) {
-          this.editOriginalName = recipe.name;
-          this.editDraft = JSON.parse(JSON.stringify(recipe));
+        openEdit(r){
           this.editing = true;
+          this.editDraft = JSON.parse(JSON.stringify(r));
+          if (!Array.isArray(this.editDraft.categories)) this.editDraft.categories = [];
         },
-        cancelEdit() {
-          this.editing = false;
-          this.editDraft = { name: '', ingredients: '', instructions: '', categories: [] };
-          this.editOriginalName = null;
-        },
-        saveEdit() {
-          const draft = {
+        cancelEdit(){ this.editing = false; this.editDraft = { id:null, name:'', ingredients:'', instructions:'', categories:[] }; },
+        async saveEdit(){
+          const id = this.editDraft.id;
+          if (!id) return this.cancelEdit();
+          const upd = {
             name: (this.editDraft.name||'').trim(),
-            ingredients: (this.editDraft.ingredients||'').replace(/\n/g, ',').split(',').map(x => x.trim()).filter(Boolean).join(', '),
+            ingredients: (this.editDraft.ingredients||'').replace(/\n/g, ',').split(',').map(x=>x.trim()).filter(Boolean).join(', '),
             instructions: (this.editDraft.instructions||'').trim(),
-            categories: Array.isArray(this.editDraft.categories) ? [...new Set(this.editDraft.categories)] : []
+            categories: Array.isArray(this.editDraft.categories) ? this.editDraft.categories : []
           };
-          if (!draft.name || !draft.ingredients) { alert('Naziv i sastojci su obavezni.'); return; }
-          // ako je promenjen naziv i već postoji drugi sa istim imenom
-          if (draft.name.toLowerCase() !== this.editOriginalName.toLowerCase() && this.recipes.some(r => r.name.toLowerCase() === draft.name.toLowerCase())) {
-            alert('Već postoji recept sa tim nazivom.');
-            return;
-          }
-          // upiši izmene u listu recepata
-          const idx = this.recipes.findIndex(r => r.name === this.editOriginalName);
-          if (idx !== -1) this.recipes.splice(idx, 1, draft);
-          // ažuriraj selekcije i kalendar ako je promenjen naziv
-          if (draft.name !== this.editOriginalName) this.replaceNameEverywhere(this.editOriginalName, draft.name);
-          this.persist();
+          if (!upd.name || !upd.ingredients) { alert('Naziv i sastojci su obavezni.'); return; }
+          const { error } = await sb.from('recipes').update(upd).eq('id', id);
+          if (error) { alert('Greška pri čuvanju: ' + error.message); return; }
           this.cancelEdit();
         },
-        deleteRecipe(name) {
-          if (!confirm(`Obrisati recept: ${name}?`)) return;
-          this.recipes = this.recipes.filter(r => r.name !== name);
-          // ukloni sa kalendara i iz selekcije
-          for (const d of this.days) {
-            for (const s of this.slots) {
-              this.week[d][s] = (this.week[d][s]||[]).filter(x => x !== name);
-            }
-          }
-          this.selected.delete(name);
-          this.persist();
-        },
-        replaceNameEverywhere(oldName, newName) {
-          if (this.selected.has(oldName)) {
-            this.selected.delete(oldName); this.selected.add(newName);
-          }
-          for (const d of this.days) for (const s of this.slots) {
-            this.week[d][s] = (this.week[d][s]||[]).map(x => x === oldName ? newName : x);
-          }
+        async removeRecipe(r){
+          if (!confirm('Obrisati recept: ' + r.name + '?')) return;
+          const { error } = await sb.from('recipes').delete().eq('id', r.id);
+          if (error) alert('Greška pri brisanju: ' + error.message);
         },
 
-        // odabir i smeštanje
-        toggleSelect(name) {
-          if (this.selected.has(name)) this.selected.delete(name); else this.selected.add(name);
-          this.persist();
-        },
-        addToDay(name) {
-          const day = this.chosenDay[name];
-          const slot = this.chosenSlot[name];
-          if (!day) { alert('Prvo izaberi dan.'); return; }
-          if (!slot) { alert('Izaberi obrok (Doručak/Ručak/Večera).'); return; }
-          if (!this.week[day]) this.week[day] = {Doručak:[],Ručak:[],Večera:[]};
-          if (!this.week[day][slot]) this.week[day][slot] = [];
-          this.week[day][slot].push(name);
-          this.selected.add(name);
-          this.persist();
+        // Sync
+        async syncNow(){
+          const { data, error } = await sb.from('recipes').select('*').order('created_at', { ascending:false });
+          if (error) { console.error(error); alert('Greška pri učitavanju.'); return; }
+          this.recipes = data || [];
         },
 
-        // drag & drop
-        onDragStart(day, slot, idx, name) {
-          this.dragPayload = { day, slot, idx, name };
+        // Local export/import (opciono)
+        exportLocal(){
+          const blob = new Blob([JSON.stringify(this.recipes, null, 2)], {type:'application/json'});
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'recepti.json'; a.click(); URL.revokeObjectURL(a.href);
         },
-        onDrop(day, slot) {
-          if (!this.dragPayload) return;
-          const { day:fromDay, slot:fromSlot, idx, name } = this.dragPayload;
-          if (!this.week[fromDay] || !this.week[fromDay][fromSlot]) { this.dragPayload = null; return; }
-          const arr = this.week[fromDay][fromSlot];
-          const [moved] = arr.splice(idx,1);
-          if (!this.week[day]) this.week[day] = {Doručak:[],Ručak:[],Večera:[]};
-          if (!this.week[day][slot]) this.week[day][slot] = [];
-          this.week[day][slot].push(moved || name);
-          this.dragPayload = null;
-          this.persist();
-        },
-
-        // čišćenje
-        removeFromSlot(day, slot, idx) {
-          this.week[day][slot].splice(idx,1);
-          this.persist();
-        },
-        clearDay(day) {
-          this.week[day] = {Doručak:[],Ručak:[],Večera:[]};
-          this.persist();
-        },
-        clearSlot(day, slot) {
-          this.week[day][slot] = [];
-          this.persist();
-        },
-        hasAny(day) {
-          return this.slots.some(s => (this.week[day] && this.week[day][s] && this.week[day][s].length));
-        },
-
-        // pomoćne
-        copyGrocery() {
-          const text = this.aggregatedIngredients.map(g => `${g.display}${g.count>1?` x ${g.count}`:''}`).join('\n');
-          navigator.clipboard.writeText(text).then(() => alert('Lista za kupovinu je kopirana!'));
-        },
-        downloadGrocery() {
-          const text = this.aggregatedIngredients.map(g => `${g.display}${g.count>1?` x ${g.count}`:''}`).join('\n');
-          const blob = new Blob([text], { type: 'text/plain' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'lista_za_kupovinu.txt';
-          a.click();
-          URL.revokeObjectURL(a.href);
-        },
-        persist() {
-          localStorage.setItem('recipes', JSON.stringify(this.recipes));
-          localStorage.setItem('selected', JSON.stringify(Array.from(this.selected)));
-          localStorage.setItem('week', JSON.stringify(this.week));
+        importLocal(e){
+          const file = e.target.files?.[0]; if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              const arr = JSON.parse(reader.result);
+              if (!Array.isArray(arr)) throw new Error('Neispravan format');
+              // Bulk insert (duplikati po nazivu su mogući — po potrebi dodaćemo unique constraint na name)
+              const { error } = await sb.from('recipes').insert(arr.map(r=>({
+                name: r.name, ingredients: r.ingredients, instructions: r.instructions,
+                categories: Array.isArray(r.categories) ? r.categories : [], author: this.me||null
+              })));
+              if (error) throw error;
+              alert('Uvoz završen.');
+            } catch(err){ alert('Import nije uspeo: ' + err.message); }
+            e.target.value = '';
+          };
+          reader.readAsText(file);
         }
       },
-      mounted() {
-        try {
-          const saved = localStorage.getItem('recipes');
-          if (saved) this.recipes = JSON.parse(saved);
-          const sel = JSON.parse(localStorage.getItem('selected')||'[]');
-          this.selected = new Set(sel);
-          const wk = JSON.parse(localStorage.getItem('week')||'{}');
-          if (wk && typeof wk === 'object') {
-            // migracija starog formata
-            for (const d of this.days) {
-              if (!wk[d]) { this.week[d] = {Doručak:[],Ručak:[],Večera:[]}; continue; }
-              if (Array.isArray(wk[d])) {
-                this.week[d] = {Doručak:[],Ručak:[...wk[d]],Večera:[]};
-              } else {
-                this.week[d] = {
-                  Doručak: Array.isArray(wk[d].Doručak)? wk[d].Doručak : [],
-                  Ručak: Array.isArray(wk[d].Ručak)? wk[d].Ručak : [],
-                  Večera: Array.isArray(wk[d].Večera)? wk[d].Večera : []
-                };
-              }
+      async mounted(){
+        // Sačuvaj "me"
+        this.$watch('me', v => localStorage.setItem('me', v || ''), { immediate: true });
+
+        // Inicijalno učitavanje
+        await this.syncNow();
+
+        // Realtime: reaguj na promene iz baze
+        sb
+          .channel('public:recipes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'recipes' }, (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            if (eventType === 'INSERT' && newRow) {
+              // Ubaci na početak ako ga već nemamo
+              if (!this.recipes.some(x => x.id === newRow.id)) this.recipes.unshift(newRow);
+            } else if (eventType === 'UPDATE' && newRow) {
+              const i = this.recipes.findIndex(x => x.id === newRow.id);
+              if (i !== -1) this.recipes.splice(i, 1, newRow);
+            } else if (eventType === 'DELETE' && oldRow) {
+              this.recipes = this.recipes.filter(x => x.id !== oldRow.id);
             }
-          }
-        } catch (e) { console.error(e); }
+          })
+          .subscribe();
       }
     });
     app.mount('#app');
   </script>
 </body>
 </html>
+
